@@ -1,6 +1,7 @@
 # tf_deep_qa
+
 使用tf实现deep-qa，参考https://github.com/aseveryn/deep-qa的theano实现, 终极目标应该是识别question和问答的匹配度，这个不好做，所以也只能分期来做。
----
+
 |阶段|目标|备注
 |---|---|---
 第一阶段|使用tf搭建简单的测试网络，熟悉tf|
