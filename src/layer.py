@@ -37,32 +37,37 @@ class ParallelLookupTable(FeedForwardNet):
 		return tf.concat(layers_out, 2)
 
 class LookupTable(Layer):
-	def __init__(self, W=None):
+	def __init__(self, W=None, batch_size=100, filter_width=5, width = 28):
 		super(LookupTable, self).__init__()
 		self.W = W
+		self.filter_width = filter_width
+		self.batch_size = batch_size
+		self.width = width
+		self.pad_matrix = numpy.zeros([self.batch_size, self.filter_width - 1, self.width])
 	def output_func(self, input):
-		return tf.to_float(tf.nn.embedding_lookup(self.W, input))
+		out = tf.concat([self.pad_matrix, tf.to_float(tf.nn.embedding_lookup(self.W, input)), self.pad_matrix], 1)
+		return out
 
 class Conv2d(Layer):
 	def __init__(self, filter_shape, filter_width = 5, batch_size = 100, height = 28, width = 28, nkernals = 1):
 		bound = numpy.sqrt(1. / numpy.prod(filter_shape[0:2]))
-		self.filter = tf.Variable(tf.random_uniform(shape=filter_shape))
+		self.filter = tf.Variable(tf.random_uniform(shape=filter_shape, minval=-bound, maxval=bound))
 		self.filter_width = filter_width
 		self.batch_size = batch_size
 		self.height = height
 		self.width = width
 		self.nkernals = nkernals
-		self.padding = numpy.zeros([self.batch_size, self.filter_width - 1, self.width, self.nkernals])
 	def output_func(self, input):
 		input = tf.reshape(input, [-1, self.height, self.width, self.nkernals])
-		input = tf.concat([self.padding, input, self.padding], 1)
 		return tf.nn.conv2d(input, self.filter, strides = [1,1,1,1], padding = 'VALID')
 
 class Activation(Layer):
-	def __init__(self, actvivation = tf.tanh):
-		self.actvivation = actvivation
+	def __init__(self, activation = tf.tanh, nkernals = 100):
+		self.activation = activation
+		self.bias = tf.Variable(tf.zeros(shape=[nkernals]))
+		self.nkernals = nkernals
 	def output_func(self, input):
-		return self.actvivation(input)
+		return self.activation(input +  tf.reshape(self.bias, [1,1,1,self.nkernals]))
 
 class Maxpool(Layer):
 	def __init__(self, ksize = [1,1,1,1], strides = [1,1,1,1], padding = 'VALID'):
@@ -82,7 +87,7 @@ class PairCombine(Layer):
 	def __init__(self, shape1, shape2):
 		self.shape1 = shape1
 		self.shape2 = shape2
-		self.W = tf.Variable(tf.random_uniform(shape=[shape1, shape2]))
+		self.W = tf.Variable(tf.zeros(shape=[shape1, shape2]))
 	def output_func(self, input):
 		q, a= input[0], input[1]
 		mid1 = tf.reshape(a, shape=[-1, self.shape1])
@@ -93,7 +98,8 @@ class PairCombine(Layer):
 
 class Linear(Layer):
 	def __init__(self, n_in, n_out, activation=tf.tanh):
-		self.W = tf.Variable(tf.random_uniform(shape=[n_in, n_out]))
+		bound=numpy.sqrt(1.2/(n_in+n_out))
+		self.W = tf.Variable(tf.random_uniform(shape=[n_in, n_out], minval=-bound, maxval=bound))
 		self.b = tf.Variable(tf.zeros(shape=[n_out]))
 		self.activation = tf.tanh
 		self.n_in = n_in
@@ -102,11 +108,12 @@ class Linear(Layer):
 		mid1 = tf.reshape(input, [-1, self.n_in])
 		mid2 = tf.add(tf.matmul(mid1, self.W), self.b)
 		mid3 = tf.reshape(mid2, shape=[-1, self.n_out])
-		return mid3
+		#return mid3
+		return self.activation(mid3)
 
 class LR(Layer):
 	def __init__(self, n_in, n_out):
-		self.W = tf.Variable(tf.random_uniform(shape=[n_in, n_out]))
+		self.W = tf.Variable(tf.zeros(shape=[n_in, n_out]))
 		self.b = tf.Variable(tf.zeros(shape=[n_out]))
 		self.n_in = n_in
 		self.n_out = n_out
@@ -118,7 +125,7 @@ class LR(Layer):
 
 if __name__ == '__main__':
 	#LOAD
-	data_dir = '../TRAIN'
+	data_dir = '../TRAIN.bak'
 
 	q_train = numpy.load(os.path.join(data_dir, 'train.questions.npy'))
 	a_train = numpy.load(os.path.join(data_dir, 'train.answers.npy'))
@@ -143,14 +150,15 @@ if __name__ == '__main__':
 	word_dim = vocab_emb.shape[1]
 	filter_width = 5
 	kernals = 100
-	batch_size = 100
+	batch_size = 50
 	overlap_ndim = 5
 	n_class = 2
-	learning_rate = 0.01
+	learning_rate = 0.001
 	overlap_word_max_id = numpy.max(q_overlap_train)
 	filter_shape = [filter_width, word_dim + overlap_ndim, 1, kernals]
 	numpy_rng = numpy.random.RandomState(123)
-	vocab_emb_overlap = numpy_rng.randn(overlap_word_max_id+1, overlap_ndim) * 0.25
+	#vocab_emb_overlap = numpy_rng.randn(overlap_word_max_id+1, overlap_ndim) * 0.25
+	vocab_emb_overlap = tf.Variable(numpy_rng.randn(overlap_word_max_id+1, overlap_ndim)*0.25)
 	t_vocab_emb_overlap = tf.random_normal(shape=[overlap_word_max_id+1, overlap_ndim])
 	x_q = tf.placeholder(tf.int32, [None, q_max_sent_size])
 	x_q_overlap = tf.placeholder(tf.int32, [None, q_max_sent_size])
@@ -159,24 +167,24 @@ if __name__ == '__main__':
 	y = tf.placeholder(tf.int32, [None, n_class])
 
 	#Define Net
-	lookup_words = LookupTable(W=vocab_emb)
-	lookup_words_overlap = LookupTable(W=vocab_emb_overlap)
+	lookup_words = LookupTable(W=vocab_emb, batch_size=batch_size, filter_width=filter_width, width=word_dim)
+	lookup_words_overlap = LookupTable(W=vocab_emb_overlap, batch_size=batch_size, filter_width=filter_width, width=overlap_ndim)
 	lookup_words = ParallelLookupTable([lookup_words, lookup_words_overlap])
-	conv = Conv2d(filter_shape=filter_shape, filter_width=filter_width, batch_size=batch_size, height=q_max_sent_size, width=overlap_ndim+word_dim)
-	non_line = Activation(tf.tanh)
+	conv = Conv2d(filter_shape=filter_shape, filter_width=filter_width, batch_size=batch_size, height=q_max_sent_size+2*(filter_width-1), width=overlap_ndim+word_dim)
+	non_line = Activation(activation=tf.tanh, nkernals=kernals)
 	max_pool = Maxpool(ksize=[1, q_max_sent_size+filter_width-1, 1, 1])
 	flatten = Flatten(batch_size=batch_size)
-	net_q = FeedForwardNet([lookup_words, conv, max_pool, flatten])
+	net_q = FeedForwardNet([lookup_words, conv, non_line, max_pool, flatten])
 	net_q.set_input([x_q, x_q_overlap])
 
-	lookup_words = LookupTable(W=vocab_emb)
-	lookup_words_overlap = LookupTable(W=vocab_emb_overlap)
+	lookup_words = LookupTable(W=vocab_emb, batch_size=batch_size, filter_width=filter_width, width=word_dim)
+	lookup_words_overlap = LookupTable(W=vocab_emb_overlap, batch_size=batch_size, filter_width=filter_width, width=overlap_ndim)
 	lookup_words = ParallelLookupTable([lookup_words, lookup_words_overlap])
-	conv = Conv2d(filter_shape=filter_shape, filter_width=filter_width, batch_size=batch_size, height=a_max_sent_size, width=overlap_ndim+word_dim)
-	non_line = Activation(tf.tanh)
+	conv = Conv2d(filter_shape=filter_shape, filter_width=filter_width, batch_size=batch_size, height=a_max_sent_size+2*(filter_width-1), width=overlap_ndim+word_dim)
+	non_line = Activation(tf.tanh, nkernals=kernals)
 	max_pool = Maxpool(ksize=[1, a_max_sent_size+filter_width-1, 1, 1])
 	flatten = Flatten(batch_size=batch_size)
-	net_a = FeedForwardNet([lookup_words, conv, max_pool, flatten])
+	net_a = FeedForwardNet([lookup_words, conv, non_line, max_pool, flatten])
 	net_a.set_input([x_a, x_a_overlap])
 
 	pair_combine = PairCombine(shape1=kernals, shape2=kernals)
@@ -204,17 +212,18 @@ if __name__ == '__main__':
 		while epoch < epochs:
 			for train_q, overlap_q, train_a, overlap_a, label in Batcher([q_train, q_overlap_train, a_train, a_overlap_train, y_train], batch_size=batch_size):
 				sess.run(optimizer, feed_dict={x_q:train_q, x_q_overlap:overlap_q, x_a:train_a, x_a_overlap:overlap_a, y:label})
-				## add evalute
-				if index % 10 == 0:
-					#loss = [sess.run(cost, feed_dict={x_q:dev_q, x_q_overlap:dev_oq, x_a:dev_a, x_a_overlap:dev_oa, y:dev_label}) for dev_q, dev_oq, dev_a, dev_oa, dev_label in Batcher([q_dev, q_overlap_dev, a_dev, a_overlap_dev, y_dev], batch_size=batch_size)]
-					pred = [sess.run(train_net.layers[-1].output, feed_dict={x_q:dev_q, x_q_overlap:dev_oq, x_a:dev_a, x_a_overlap:dev_oa}) for dev_q, dev_oq, dev_a, dev_oa in Batcher([q_dev, q_overlap_dev, a_dev, a_overlap_dev], batch_size=batch_size)]
-					pred = [i for i in numpy.asarray(pred).reshape([-1,2])]
-					label = [i for i in y_dev][0:1500]
-					rc = 0
-					for i, j in zip(pred, label):
-						if i[0] == j[0]:
-							rc += 1
-					print epoch, index, rc /1500.0
-				index += 1
-			#	time.sleep(1)
+				#oc = sess.run(pair_combine.output, feed_dict={x_q:train_q, x_q_overlap:overlap_q, x_a:train_a, x_a_overlap:overlap_a, y:label})
+				#ow = sess.run(train_net.layers[-1].W, feed_dict={x_q:train_q, x_q_overlap:overlap_q, x_a:train_a, x_a_overlap:overlap_a, y:label})
+				#print epoch, ow
+				#time.sleep(1)
+				# add evalute
+				#if index % 10 == 0:
+				#	pred = [sess.run(train_net.layers[-1].output, feed_dict={x_q:dev_q, x_q_overlap:dev_oq, x_a:dev_a, x_a_overlap:dev_oa}) for dev_q, dev_oq, dev_a, dev_oa in Batcher([q_dev, q_overlap_dev, a_dev, a_overlap_dev], batch_size=batch_size)]
+				#	print pred[0:10], y_dev[0:10]
+				#index += 1
 			epoch += 1
+			print epoch
+
+		## save param
+		params = sess.run([vocab_emb_overlap, net_q.layers[1].filter, net_q.layers[2].bias, net_a.layers[1].filter, net_a.layers[2].bias, pair_combine.W, hidden_layer.W, hidden_layer.b, lr_layer.W, lr_layer.b])
+		numpy.save('params.npy', params)
