@@ -1,14 +1,14 @@
 # 记录
 这个主要记录这个project的进展，目前是实现了对theano版本的改写，中间很多曲折，主要收获点及结论总结如下，当然后面会马不停蹄的继续优化。
 - 可用。做到了论文中的效果，目前预测的准确率:1217 / 1500 = 81.3%
-- 语法糖:主要针对theano和tensorflow
-	＊ 输出查看，theano使用eval()可直接查看，tensorflow查看Tensor变量需要Run，print sess.run(val), 才能查看val
-	＊ 变量设置(调参), theano直接使用shared变量做更新，迭代一次之后计算grad，可观察的更新参数，而tensorflow需要设置成Variable形式(否则一直是初始值)，优化算法一般使用AdamOptimizer，不使用Adadelta，会自动对所有的Variable进行优化。
-	＊ 观测:theano观测需要参数与观测部件的输入精确匹配，而tensorflow可以富裕参数
+- 语法糖:主要针对theano和tensorflow   
+	＊ 输出查看，theano使用eval()可直接查看，tensorflow查看Tensor变量需要Run，print sess.run(val), 才能查看val   
+	＊ 变量设置(调参), theano直接使用shared变量做更新，迭代一次之后计算grad，可观察的更新参数，而tensorflow需要设置成Variable形式(否则一直是初始值)，优化算法一般使用AdamOptimizer，不使用Adadelta，会自动对所有的Variable进行优化。  
+	＊ 观测:theano观测需要参数与观测部件的输入精确匹配，而tensorflow可以富裕参数  
 - 后面的方向:
-	＊ 保存图到文件，load的方式，不能测试的时候一直构图吧，一种是使用cPickle(郁闷，没有成功)，还有一种是tf自带的存图方式，可以从简单的开始学起
-	＊ 参数保存，load，较方便的方式，目前的加载后直接硬塞的方式太low了
-	＊ 优化脚本之后，可以做真实问答相关的项目
+	＊ 保存图到文件，load的方式，不能测试的时候一直构图吧，一种是使用cPickle(郁闷，没有成功)，还有一种是tf自带的存图方式，可以从简单的开始学起  
+	＊ 参数保存，load，较方便的方式，目前的加载后直接硬塞的方式太low了  
+	＊ 优化脚本之后，可以做真实问答相关的项目  
 
 
 # 进展
